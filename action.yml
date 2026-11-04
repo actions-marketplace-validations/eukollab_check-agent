@@ -1,0 +1,62 @@
+# Copyright © 2026 EuKreate, Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# eukollab/check-agent: checks agent.json in a workflow and changes nothing. Each release pins the ekl wheel it
+# installs by its SHA-256 in the address, so pip refuses any other file.
+name: EuKollab check agent
+description: Check an EuKollab agent.json with the network's checks, and against the server's own declarations.
+author: EuKreate, Inc.
+branding:
+  icon: check-circle
+  color: orange
+inputs:
+  file:
+    description: The agent.json to check.
+    default: agent.json
+  mcp:
+    description: The address of the agent's MCP server, started earlier in the job, to compare agent.json with what it declares.
+    default: ""
+  platform:
+    description: The EuKollab network.
+    default: https://eukollab.ai
+  comment:
+    description: On a pull request, keep one comment with the results up to date (needs pull-requests write).
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Install ekl
+      shell: bash
+      env:
+        PLATFORM: ${{ inputs.platform }}
+      run: |
+        python3 -m venv "$RUNNER_TEMP/ekl"
+        "$RUNNER_TEMP/ekl/bin/pip" install -q --no-deps \
+          "ekl-cli @ ${PLATFORM%/}/downloads/ekl_cli-0.4.0-py3-none-any.whl#sha256=eafece66a0fe37d07c293e8edf9f1da3aec564a7c58da1cc512e069da85ebc31"
+        echo "$RUNNER_TEMP/ekl/bin" >> "$GITHUB_PATH"
+    - name: Check
+      id: check
+      shell: bash
+      env:
+        FILE: ${{ inputs.file }}
+        MCP: ${{ inputs.mcp }}
+        PLATFORM: ${{ inputs.platform }}
+        EKL_CONFIG_DIR: ${{ runner.temp }}/ekl-config
+      run: python3 "$GITHUB_ACTION_PATH/check.py"
+    - name: Comment on the pull request
+      if: always() && inputs.comment == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        marker='<!-- eukollab/check-agent -->'
+        body="$marker
+        $(cat "$RUNNER_TEMP/eukollab-check.md")"
+        existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+          --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n1)
+        if [ -n "$existing" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -f body="$body" >/dev/null
+        else
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="$body" >/dev/null
+        fi

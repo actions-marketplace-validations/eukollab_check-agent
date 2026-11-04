@@ -1,0 +1,19 @@
+# Runs this Action as a fork's pull request would: no EKL_TOKEN, so it installs ekl by its pinned hash, skips the
+# network's checks and says so. It needs no secret and changes nothing.
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  without-a-token:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: action.yml pins the ekl wheel by its SHA-256
+        run: grep -Eq 'ekl_cli-[0-9.]+-py3-none-any\.whl#sha256=[0-9a-f]{64}' action.yml
+      - uses: ./
+      - name: The report says the network's checks were skipped
+        run: grep -q "checks were skipped" "$RUNNER_TEMP/eukollab-check.md"
